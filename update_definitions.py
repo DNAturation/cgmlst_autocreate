@@ -9,27 +9,36 @@ def arguments():
 
     parser.add_argument('-a', '--alleles', required = True, help = "Allele directory")
     parser.add_argument('-j', '--jsons', required = True, help = "JSON directory")
-    parser.add_argument('-t', '--test', required = True, help = "Test name")
+    parser.add_argument('-t', '--test', required = True, help = "Test name (i.e. column 2 in .markers file)")
 
     return parser.parse_args()
 
 def load_data(jsonpath):
-    
+    """Opens JSON file and returns it
+    as Python dictionary.
+    """
+
     with open(jsonpath, 'r') as f:
         data = json.load(f)
     return data
 
 def get_known_alleles(allele_dir):
-    
+    """Reads each Fasta in allele_dir and 
+    stores the sequence definitions in a list.
+
+    Returns a dictionary. Keys are gene names, value is list of seqs.
+    """
+
     # strips path and extension
     get_name = lambda x: os.path.basename(os.path.splitext(x)[0])
 
     known_alleles = {}
 
-    for (root, directory, fname) in os.walk(allele_dir):
-
-        with open(fname, 'r') as f:
-            alleles = [str(x) for x in SeqIO.parse(f, 'fasta')]
+    for fname in os.listdir(allele_dir):
+        
+        fpath = os.path.join(allele_dir, fname)
+        with open(fpath, 'r') as f:
+            alleles = [str(x.seq) for x in SeqIO.parse(f, 'fasta')]
 
         known_alleles[get_name(fname)] = alleles
 
@@ -41,14 +50,13 @@ def update_alleles(known_alleles, allele_dir):
     for gene in known_alleles:
 
         fname = os.path.join(allele_dir, gene + ".fasta")
-
         with open(fname, 'w') as f:
             out = ""
             counter = 0
             for allele in known_alleles[gene]:
                 out += ">{}\n".format(counter + 1)
-                out += known_alleles[gene][counter]
-
+                out += known_alleles[gene][counter] + "\n"
+                counter += 1
             f.write(out)
                 
 def update(json_dir, known_alleles, test):
@@ -62,9 +70,9 @@ def update(json_dir, known_alleles, test):
 
     json_out = {}
 
-    for (root, director, fname) in os.walk(json_dir):
+    for fname in os.listdir(json_dir):
         
-        json_name = os.path.join(root, fname)
+        json_name = os.path.join(json_dir, fname)
         data = load_data(json_name)
 
         genes = data["Results"][0]["TestResults"][test]
@@ -73,7 +81,9 @@ def update(json_dir, known_alleles, test):
             
             gene = genes[g]
 
-            if gene["BlastResults"] is not None and not gene["CorrectMarkerMatch"]:
+            if gene["BlastResults"] is not None \
+                    and not gene["CorrectMarkerMatch"] \
+                    and not gene["IsContigTruncation"]:
                 br = gene["BlastResults"]
 
                 sj = br["SubjAln"].replace('-', '')
@@ -81,7 +91,8 @@ def update(json_dir, known_alleles, test):
                 br["QueryAln"] = sj 
                 br["SubjAln"] = sj 
                 
-                known_alleles[g].append(sj)
+                if sj not in known_alleles[g]: 
+                    known_alleles[g].append(sj)
 
                 br["Mismatches"] = 0
                 br["Gaps"] = 0
@@ -90,12 +101,17 @@ def update(json_dir, known_alleles, test):
                 gene["BlastPercentIdentity"] = 100.0
                 gene["CorrectMarkerMatch"] = True
 
-                gene["MarkerCall"] = str(known_alleles[g].index(br["SubjAln"]) + 1)
+                gene["MarkerCall"] = str(known_alleles[g].index(sj) + 1)
                 gene["AlleleMatch"] = gene["MarkerCall"]
-
-            json_out[json_name] = data
+                
+                gene["BlastResults"] = br
+                genes[g] = gene
+        
+            data["Results"][0]["TestResults"][test] = genes
+            
+        json_out[json_name] = data
    
-   return known_alleles, json_out
+    return known_alleles, json_out
 
 def main():
 
@@ -105,11 +121,12 @@ def main():
     
     known_alleles, json_out = update(args.jsons, known_alleles, args.test)
 
-    update_alleles(known_alleles, args.allele_dir)
+    update_alleles(known_alleles, args.alleles)
     
     for j in json_out:
         with open(j, 'w') as f:
-            json.dump(json_out[j], f)
+            json.dump(json_out[j], f, indent = 4,
+                    separators=(',', ' : '), sort_keys = True)
 
 if __name__ == '__main__':
     main()

@@ -36,7 +36,7 @@ def main():
     
     args = arguments()
     
-    generate_file(args.fastas, args.test, args.outpath)
+    generate_file(args.fastas, args.test, args.out)
 
 if __name__ == '__main__':
     main()
