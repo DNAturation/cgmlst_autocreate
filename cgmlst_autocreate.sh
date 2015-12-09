@@ -12,7 +12,7 @@ while test $# -gt 0; do
         -h|--help)
             echo "Required arguments:"
             echo "--work-dir         Working directory for this script."
-            echo "--reference        Genome within --genomes path to be used as reference."
+            echo "--reference        Fasta filename (not path) within --genomes path to be used as reference."
             echo "--genomes          Path to directory containing genomes as FASTAS."
             exit 0
             ;;
@@ -90,11 +90,17 @@ blastn -db temp/${PROKKA_PREFIX}_db \
        -outfmt 6 \
        -out blast_out/all_vs_all.tsv
 
+# AVA filters the all-vs-all search for homologues
+    # Thresholds are (currently) hardcoded as 90% PID and 50% length 
+    # Only the longest variant is kept
 python ava.py prokka_out/${PROKKA_PREFIX}.ffn blast_out/all_vs_all.tsv blast_out/non_redundant.fasta
+
+### TODO Maybe add filter to get genes for a cgMLST, wgMLST, or accessory scheme
 
 ### Create .markers file for MIST ###
 
 csplit --prefix alleles/ -z prokka_out/${PROKKA_PREFIX}.ffn '/>/' '{*}'
+
 cd alleles/
 
 for i in $( ls ); do
@@ -109,11 +115,17 @@ python marker_maker.py --fastas alleles/ \
 
 ### run MIST ###
 
+# A hack that will find the shortest path to MIST
+    # The notion is that it won't accidentally find 
+    # debugging binaries buried in the project directory
 parallel mono $( locate MIST.exe | sort -n | tail -n 1 ) \ 
          -t cgmlst.markers \
          -T temp/ \
          -a alleles/ \
          -b -j jsons/{/.}.json \
          {} ::: ${GENOMES}/*.fasta
+
+### Update allele definitions ### 
+python update_definitions.py --alleles alleles/ --jsons jsons/ --test cgmlst
 
 
