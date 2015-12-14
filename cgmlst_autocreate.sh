@@ -1,5 +1,11 @@
 #!/bin/bash
 
+
+### TODO Add filter to get genes for a cgMLST, or accessory scheme
+### TODO Change names/args to reflect that the scheme initially created
+        ### is NOT a cgmlst scheme nor a pangenome scheme
+        ### nor is it a pangenome scheme
+
 if test $# -eq 0; then
     echo "No arguments provided!"
     exit 1
@@ -35,7 +41,7 @@ while test $# -gt 0; do
         --genomes)
             shift
             if test $# -gt 0; then
-                export GENOMES=$1
+                export GENOMES=${SRC_DIR}/$1
             else
                 echo "No genomes specified!"
                 exit 1
@@ -66,6 +72,15 @@ function fasta_rename {
 
 }
 
+function split_args {
+
+    OIFS=$IFS
+    IFS=','
+    arr=$1
+    IFS=$OIFS 
+    echo arr
+}
+
 ### Set up directories ###
 
 mkdir $WORKDIR
@@ -81,7 +96,7 @@ prokka --outdir prokka_out/ \
        --prefix $PROKKA_PREFIX \
        --locustag $PROKKA_PREFIX \
        --cpus 0 \
-       ${SRC_DIR}/${GENOMES}${REFERENCE}
+       ${GENOMES}${REFERENCE}
 
 ### all-vs-all BLAST search to filter homologues
 makeblastdb -in prokka_out/${PROKKA_PREFIX}.ffn -dbtype nucl \
@@ -93,13 +108,12 @@ blastn -query prokka_out/${PROKKA_PREFIX}.ffn \
        -out blast_out/all_vs_all.csv
 
 # AVA filters the all-vs-all search for homologues
-    # Thresholds are (currently) hardcoded as 90% PID and 50% length 
+    # Thresholds are defaulted as 90% PID and 50% length 
     # Only the longest variant is kept
 python ${SCRIPT_DIR}/ava.py --seq prokka_out/${PROKKA_PREFIX}.ffn \
                             --result blast_out/all_vs_all.csv \
                             --out blast_out/non_redundant.fasta
 
-### TODO Maybe add filter to get genes for a cgMLST, wgMLST, or accessory scheme
 
 ### Create .markers file for MIST ###
 
@@ -127,10 +141,17 @@ parallel mono $( locate MIST.exe | sort -n | tail -n 1 ) \
          -T temp/ \
          -a alleles/ \
          -b -j jsons/{/.}.json \
-         {} ::: ${SRC_DIR}/${GENOMES}/*.fasta
+         {} ::: ${GENOMES}/*.fasta
 
 ### Update allele definitions ### 
 python ${SCRIPT_DIR}/update_definitions.py --alleles alleles/ \
                                            --jsons jsons/ \
                                             --test cgmlst
 
+### Divide Reference-based calls into core, genome, accessory schemes ###
+
+python ${SCRIPT_DIR}/json2csv.py --jsons jsons/ \
+                                 --test cgmlst \
+                                 --out  ${REFERENCE}_calls.csv
+
+Rscript ${SCRIPT_DIR}/divide_schemes.R ${REFERENCE}_calls.csv cgmlst.markers

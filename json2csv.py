@@ -76,7 +76,7 @@ def main():
     
     args = arguments()
 
-    jsons = [os.path.join(args.jsondir, x) for x in os.listdir(args.jsondir)]
+    jsons = [os.path.join(args.jsons, x) for x in os.listdir(args.jsons)]
 
     results = {}
 
@@ -86,11 +86,11 @@ def main():
         
         strain = data['Results'][0]['Strain']
 
-        genes = data['Results'][0]['TestResults'][args.testname]
+        genes = data['Results'][0]['TestResults'][args.test]
        
         results[strain] = allele_calls(genes)
 
-    write_csv(results, args.outpath)
+    write_csv(results, args.out)
 
 if __name__ == '__main__':
     main()
