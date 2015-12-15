@@ -14,7 +14,7 @@ fi
 
 SRC_DIR=$(cd "$(dirname "$0")/.."; pwd)
 SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
-
+T="$(date +%s)"
 function fullpath {
 
     echo "$( cd "$(dirname "$1")"; pwd)/$(basename "$1")"
@@ -107,6 +107,8 @@ mkdir alleles blast_out jsons temp
 
 PROKKA_PREFIX=$( echo $REFERENCE | sed 's/\(.*\)\..*/\1/' ) 
 
+printf "\nRunning Prokka\n"
+
 prokka --outdir prokka_out/ \
        --prefix $PROKKA_PREFIX \
        --locustag $PROKKA_PREFIX \
@@ -114,6 +116,7 @@ prokka --outdir prokka_out/ \
        ${GENOMES}${REFERENCE}
 
 ### all-vs-all BLAST search to filter homologues
+printf "\nStarting all-vs-all BLAST search of CDS\n"
 makeblastdb -in prokka_out/${PROKKA_PREFIX}.ffn -dbtype nucl \
             -out temp/${PROKKA_PREFIX}_db
 blastn -query prokka_out/${PROKKA_PREFIX}.ffn \
@@ -122,6 +125,7 @@ blastn -query prokka_out/${PROKKA_PREFIX}.ffn \
        -outfmt 10 \
        -out blast_out/all_vs_all.csv
 
+printf "\nFiltering out homologues\n"
 # AVA filters the all-vs-all search for homologues
     # Thresholds are defaulted as 90% PID and 50% length 
     # Only the longest variant is kept
@@ -131,7 +135,7 @@ python ${SCRIPT_DIR}/ava.py --seq prokka_out/${PROKKA_PREFIX}.ffn \
 
 
 ### Create .markers file for MIST ###
-
+printf "\nSplitting to discrete fastas.\n"
 csplit --quiet --prefix alleles/ -z prokka_out/${PROKKA_PREFIX}.ffn '/>/' '{*}'
 
 cd alleles/
@@ -142,11 +146,13 @@ done
 
 cd $WORKDIR
 
+printf "\nBuilding reference genome .markers file\n"
 python ${SCRIPT_DIR}/marker_maker.py --fastas alleles/ \
                        --out cgmlst.markers \
                        --test cgmlst
 
 ### run MIST ###
+printf "\nRunning MIST in parallel.\n"
 
 # A hack that will find the shortest path to MIST
     # The notion is that it won't accidentally find 
@@ -159,14 +165,23 @@ parallel mono $( locate MIST.exe | sort -n | tail -n 1 ) \
          {} ::: ${GENOMES}/*.fasta
 
 ### Update allele definitions ### 
+printf "\nUpdating allele definitions.\n"
 python ${SCRIPT_DIR}/update_definitions.py --alleles alleles/ \
                                            --jsons jsons/ \
                                             --test cgmlst
 
 ### Divide Reference-based calls into core, genome, accessory schemes ###
-
+printf "\nParsing JSONs.\n"
 python ${SCRIPT_DIR}/json2csv.py --jsons jsons/ \
                                  --test cgmlst \
                                  --out  ${PROKKA_PREFIX}_calls.csv
 
+printf "\nDividing markers into core and accessory schemes.\n"
 Rscript ${SCRIPT_DIR}/divide_schemes.R ${PROKKA_PREFIX}_calls.csv cgmlst.markers
+
+printf "\nScript complete at `date`\n"
+
+T="$(($(date +%s)-T))"
+printf "Total run time: %02d:%02d:%02d:%02d\n" "$((T/86400))" "$((T/3600%24))" "$((T/60%60))" "$((T%60))"
+
+
