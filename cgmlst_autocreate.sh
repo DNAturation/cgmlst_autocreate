@@ -5,6 +5,7 @@
 ### TODO Change names/args to reflect that the scheme initially created
         ### is NOT a cgmlst scheme nor a pangenome scheme
         ### nor is it a pangenome scheme
+### TODO Fix divide_schemes.R so that threshold for absence is no longer hardcoded
 
 if test $# -eq 0; then
     echo "No arguments provided!"
@@ -13,6 +14,12 @@ fi
 
 SRC_DIR=$(cd "$(dirname "$0")/.."; pwd)
 SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+
+function fullpath {
+
+    echo "$( cd "$(dirname "$1")"; pwd)/$(basename "$1")"
+}
+
 
 while test $# -gt 0; do
 
@@ -30,7 +37,7 @@ while test $# -gt 0; do
             shift
             if test $# -gt 0; then
                 
-                export WORKDIR=${SRC_DIR}/$1
+                export WORKDIR=$(echo $(fullpath "$1"))/
             else
                 echo "You need to give me a work directory."
                 exit 1
@@ -41,7 +48,7 @@ while test $# -gt 0; do
         --genomes)
             shift
             if test $# -gt 0; then
-                export GENOMES=${SRC_DIR}/$1
+                export GENOMES=$(echo $(fullpath "$1"))/
             else
                 echo "No genomes specified!"
                 exit 1
@@ -63,6 +70,12 @@ while test $# -gt 0; do
     esac
 done
 
+if [ ! -f ${GENOMES}/${REFERENCE} ]; then
+    echo "${GENOMES}/${REFERENCE} does not exist."
+    exit 1
+fi
+
+
 function fasta_rename {
 
     FASTANAME=$( head -n 1 $1 | cut -d' ' -f1 | sed 's/>//')
@@ -82,6 +95,8 @@ function split_args {
 }
 
 ### Set up directories ###
+echo $WORKDIR
+echo $GENOMES
 
 mkdir $WORKDIR
 cd $WORKDIR 
@@ -152,6 +167,6 @@ python ${SCRIPT_DIR}/update_definitions.py --alleles alleles/ \
 
 python ${SCRIPT_DIR}/json2csv.py --jsons jsons/ \
                                  --test cgmlst \
-                                 --out  ${REFERENCE}_calls.csv
+                                 --out  ${PROKKA_PREFIX}_calls.csv
 
-Rscript ${SCRIPT_DIR}/divide_schemes.R ${REFERENCE}_calls.csv cgmlst.markers
+Rscript ${SCRIPT_DIR}/divide_schemes.R ${PROKKA_PREFIX}_calls.csv cgmlst.markers

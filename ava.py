@@ -40,10 +40,15 @@ def find_homologues(resultfile, lengths, pid_thresh, length_thresh):
 
     with open(resultfile, 'r') as f:
         rdr = csv.reader(f, delimiter = ",")
+        reported = False
         for line in rdr:
             
-            if processed_lines % 1000000 == 0:
-                print "{}% complete".format(100 * processed_lines / total_lines)           
+            if round(100.0 * processed_lines / total_lines, 0) in range(0,100,5):
+                if reported is False:
+                    print "{}% complete".format(round(100 * processed_lines / total_lines), 0)           
+                    reported = True
+            else:
+                reported = False
             processed_lines += 1
 
             name1 = line[0]
