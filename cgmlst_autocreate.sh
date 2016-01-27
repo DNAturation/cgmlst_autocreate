@@ -101,7 +101,7 @@ echo $GENOMES
 mkdir $WORKDIR
 cd $WORKDIR 
 
-mkdir alleles blast_out jsons temp
+mkdir alleles blast_out jsons msa temp
 
 ### Get non-redundant gene set ###
 
@@ -148,8 +148,8 @@ cd $WORKDIR
 
 printf "\nBuilding reference genome .markers file\n"
 python ${SCRIPT_DIR}/marker_maker.py --fastas alleles/ \
-                       --out cgmlst.markers \
-                       --test cgmlst
+                       --out wgmlst.markers \
+                       --test wgmlst
 
 ### run MIST ###
 printf "\nRunning MIST in parallel.\n"
@@ -158,7 +158,7 @@ printf "\nRunning MIST in parallel.\n"
     # The notion is that it won't accidentally find 
     # debugging binaries buried in the project directory
 parallel mono $( locate MIST.exe | sort -n | tail -n 1 ) \
-         -t cgmlst.markers \
+         -t wgmlst.markers \
          -T temp/ \
          -a alleles/ \
          -b -j jsons/{/.}.json \
@@ -168,20 +168,23 @@ parallel mono $( locate MIST.exe | sort -n | tail -n 1 ) \
 printf "\nUpdating allele definitions.\n"
 python ${SCRIPT_DIR}/update_definitions.py --alleles alleles/ \
                                            --jsons jsons/ \
-                                            --test cgmlst
+                                            --test wgmlst
+
+### Align genes with clustalo ###
+printf "\nAligning genes.\n"
+parallel clustalo -i {} -o msa/{/} ::: alleles/*.fasta
 
 ### Divide Reference-based calls into core, genome, accessory schemes ###
 printf "\nParsing JSONs.\n"
 python ${SCRIPT_DIR}/json2csv.py --jsons jsons/ \
-                                 --test cgmlst \
+                                 --test wgmlst \
                                  --out  ${PROKKA_PREFIX}_calls.csv
 
 printf "\nDividing markers into core and accessory schemes.\n"
-Rscript ${SCRIPT_DIR}/divide_schemes.R ${PROKKA_PREFIX}_calls.csv cgmlst.markers
+Rscript ${SCRIPT_DIR}/divide_schemes.R ${PROKKA_PREFIX}_calls.csv wgmlst.markers
 
 printf "\nScript complete at `date`\n"
 
 T="$(($(date +%s)-T))"
 printf "Total run time: %02d:%02d:%02d:%02d\n" "$((T/86400))" "$((T/3600%24))" "$((T/60%60))" "$((T%60))"
-
 
