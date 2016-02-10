@@ -68,8 +68,6 @@ def update(json_dir, known_alleles, test):
     Returns dict of known alleles and JSON objects for later writing.
     """
 
-    json_out = {}
-
     for fname in os.listdir(json_dir):
         
         json_name = os.path.join(json_dir, fname)
@@ -81,7 +79,7 @@ def update(json_dir, known_alleles, test):
             
             gene = genes[g]
 
-            if gene["BlastResults"] is not None \
+            if gene["BlastResults"] != None \
                     and not gene["CorrectMarkerMatch"] \
                     and not gene["IsContigTruncation"]:
                 br = gene["BlastResults"]
@@ -109,9 +107,12 @@ def update(json_dir, known_alleles, test):
         
             data["Results"][0]["TestResults"][test] = genes
             
-        json_out[json_name] = data
-   
-    return known_alleles, json_out
+        
+        with open(json_name, 'w') as f:
+            json.dump(data, f, indent = 4,
+                      separators = (',', ': '), sort_keys = True)
+
+    return known_alleles
 
 def main():
 
@@ -119,14 +120,10 @@ def main():
 
     known_alleles = get_known_alleles(args.alleles)
     
-    known_alleles, json_out = update(args.jsons, known_alleles, args.test)
+    known_alleles = update(args.jsons, known_alleles, args.test)
 
     update_alleles(known_alleles, args.alleles)
     
-    for j in json_out:
-        with open(j, 'w') as f:
-            json.dump(json_out[j], f, indent = 4,
-                    separators=(',', ' : '), sort_keys = True)
 
 if __name__ == '__main__':
     main()
