@@ -52,7 +52,7 @@ def main():
 
     args = arguments()
 
-    carriage_thresh = str(int(len(os.listdir(args.querydir)) * args.carriage))
+    carriage_thresh = str(int(len(os.listdir(args.querydir)) * (args.carriage / 100)))
 
     text = format_text(args.querydir,
                        args.basedir,
@@ -61,7 +61,7 @@ def main():
                        args.percent_id,
                        carriage_thresh)
 
-    with open(os.path.join(args.output, 'settings.txt'), 'w') as f:
+    with open(args.output, 'w') as f:
         f.write(text)
 
 if __name__ == '__main__':

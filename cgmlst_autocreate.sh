@@ -1,12 +1,5 @@
 #!/bin/bash
 
-
-### TODO Add filter to get genes for a cgMLST, or accessory scheme
-### TODO Change names/args to reflect that the scheme initially created
-        ### is NOT a cgmlst scheme nor a pangenome scheme
-        ### nor is it a pangenome scheme
-### TODO Fix divide_schemes.R so that threshold for absence is no longer hardcoded
-
 if test $# -eq 0; then
     echo "No arguments provided!"
     exit 1
@@ -28,8 +21,13 @@ while test $# -gt 0; do
         -h|--help)
             echo "Required arguments:"
             echo "--work-dir         Working directory for this script."
-            echo "--reference        Fasta filename (not path) within --genomes path to be used as reference."
             echo "--genomes          Path to directory containing genomes as FASTAS."
+            echo ""
+            echo "Optional arguments:"
+            echo "--cores            Number of CPU cores to use where possible."
+            echo "--fragment         Fragment size (bp) for Panseq to generate a pangenome. (default 500)"
+            echo "--percentid        Percent identity cutoff for pangenome. (default 85%)"
+            echo "--carriage         Percent presence for a gene to be considered core. (default 99.5)"
             exit 0
             ;;
         
@@ -56,13 +54,46 @@ while test $# -gt 0; do
             shift
             ;;
 
-        --reference)
+        --cores)
             shift
             if test $# -gt 0; then
-                export REFERENCE=$1
+                export CORES=$1
             else
-                echo "No reference genomes provided!"
-                exit 1
+                export CORES=$( grep -ci processor /proc/cpuinfo )
+            fi
+            echo "Using $CORES cores."
+            shift
+            ;;
+
+        --fragment)
+            shift
+            if test $# -gt 0; then
+                export FRAGMENT=$1
+            else
+                export FRAGMENT=500
+                echo "Using default fragment size of 500 bp."
+            fi
+            shift
+            ;;
+
+        --percentid)
+            shift
+            if test $# -gt 0; then
+                export PERCENTID=$1
+            else
+                export PERCENTID=85
+                echo "Using default percent identity of 85."
+            fi
+            shift
+            ;;
+            
+        --carriage)
+            shift
+            if test $# -gt 0; then
+                export CARRIAGERATE=$1
+            else
+                export CARRIAGERATE=99.5
+                echo "Using default carriage threshold of 99.5%"
             fi
             shift
             ;;
@@ -70,11 +101,19 @@ while test $# -gt 0; do
     esac
 done
 
-if [ ! -f ${GENOMES}/${REFERENCE} ]; then
-    echo "${GENOMES}/${REFERENCE} does not exist."
+# Make sure mandatory args are given
+if [ -z ${GENOMES+x} ] || [ -z ${WORKDIR+x} ]; then
+    echo "Required arguments unset!"
     exit 1
 fi
 
+if [ ! -f ${SCRIPT_DIR}/panseq ]; then
+    echo "Setting up panseq..."
+    git clone https://github.com/chadlaing/panseq ${SCRIPT_DIR}/panseq/
+    perl ${SCRIPT_DIR}/panseq/Build.PL
+    ${SCRIPT_DIR}/panseq/Build installdeps
+    perl ${SCRIPT_DIR}/panseq/t/output.t || exit 1
+fi
 
 function fasta_rename {
 
@@ -95,8 +134,6 @@ function split_args {
 }
 
 ### Set up directories ###
-echo $WORKDIR
-echo $GENOMES
 
 mkdir $WORKDIR
 cd $WORKDIR 
@@ -105,38 +142,26 @@ mkdir alleles blast_out jsons msa temp
 
 ### Get non-redundant gene set ###
 
-PROKKA_PREFIX=$( echo $REFERENCE | sed 's/\(.*\)\..*/\1/' ) 
+### Format arguments and run panseq ###
 
-printf "\nRunning Prokka\n"
+printf "\nRunning Panseq to find pan-genome\n"
 
-prokka --outdir prokka_out/ \
-       --prefix $PROKKA_PREFIX \
-       --locustag $PROKKA_PREFIX \
-       --cpus 0 \
-       ${GENOMES}${REFERENCE}
+$PANSEQ_ARGS = ${SCRIPT_DIR}/settings.txt
 
-### all-vs-all BLAST search to filter homologues
-printf "\nStarting all-vs-all BLAST search of CDS\n"
-makeblastdb -in prokka_out/${PROKKA_PREFIX}.ffn -dbtype nucl \
-            -out temp/${PROKKA_PREFIX}_db
-blastn -query prokka_out/${PROKKA_PREFIX}.ffn \
-       -db temp/${PROKKA_PREFIX}_db \
-       -num_threads $( nproc ) \
-       -outfmt 10 \
-       -out blast_out/all_vs_all.csv
+python format_panseq_args.py --output     $PANSEQ_ARGS \
+                             --fragment   $FRAGMENT \
+                             --querydir   $GENOMES \
+                             --basedir    panseq_results \
+                             --cores      $CORES \
+                             --percent_id $PERCENTID \
+                             --carriage   $CARRIAGERATE
 
-printf "\nFiltering out homologues\n"
-# AVA filters the all-vs-all search for homologues
-    # Thresholds are defaulted as 90% PID and 50% length 
-    # Only the longest variant is kept
-python ${SCRIPT_DIR}/ava.py --seq prokka_out/${PROKKA_PREFIX}.ffn \
-                            --result blast_out/all_vs_all.csv \
-                            --out blast_out/non_redundant.fasta
+perl ${SCRIPT_DIR}/panseq/lib/panseq.pl $PANSEQ_ARGS
 
 
 ### Create .markers file for MIST ###
 printf "\nSplitting to discrete fastas.\n"
-csplit --quiet --prefix alleles/ -z prokka_out/${PROKKA_PREFIX}.ffn '/>/' '{*}'
+csplit --quiet --prefix alleles/ -z panseq_results/panGenomeFragments.fasta '/>/' '{*}'
 
 cd alleles/
 
@@ -178,10 +203,10 @@ parallel clustalo -i {} -o msa/{/} ::: alleles/*.fasta
 printf "\nParsing JSONs.\n"
 python ${SCRIPT_DIR}/json2csv.py --jsons jsons/ \
                                  --test wgmlst \
-                                 --out  ${PROKKA_PREFIX}_calls.csv
+                                 --out  wgmlst_calls.csv
 
 printf "\nDividing markers into core and accessory schemes.\n"
-Rscript ${SCRIPT_DIR}/divide_schemes.R ${PROKKA_PREFIX}_calls.csv wgmlst.markers
+Rscript ${SCRIPT_DIR}/divide_schemes.R wgmlst_calls.csv wgmlst.markers
 
 printf "\nScript complete at `date`\n"
 
