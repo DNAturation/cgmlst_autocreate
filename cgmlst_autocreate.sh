@@ -19,15 +19,18 @@ while test $# -gt 0; do
     case "$1" in
         
         -h|--help)
+
+            echo ""
             echo "Required arguments:"
             echo "--work-dir         Working directory for this script."
-            echo "--genomes          Path to directory containing genomes as FASTAS."
+            echo "--genomes          Path to directory containing genomes as FASTAs."
             echo ""
             echo "Optional arguments:"
-            echo "--cores            Number of CPU cores to use where possible."
-            echo "--fragment         Fragment size (bp) for Panseq to generate a pangenome. (default 500)"
-            echo "--percentid        Percent identity cutoff for pangenome. (default 85%)"
-            echo "--carriage         Percent presence for a gene to be considered core. (default 99.5)"
+            echo "--cores            Number of CPU cores to use where possible. (default = all)"
+            echo "--fragment         Fragment size (bp) for Panseq to generate a pangenome. (default = 500)"
+            echo "--percentid        Percent identity cutoff for pangenome. (default = 85%)"
+            echo "--carriage         Percent presence for a gene to be considered core. (default = 99.5)"
+            echo ""
             exit 0
             ;;
         
@@ -107,6 +110,7 @@ if [ -z ${GENOMES+x} ] || [ -z ${WORKDIR+x} ]; then
     exit 1
 fi
 
+# Set up and test Panseq
 if [ ! -f ${SCRIPT_DIR}/panseq ]; then
     echo "Setting up panseq..."
     git clone https://github.com/chadlaing/panseq ${SCRIPT_DIR}/panseq/
@@ -158,6 +162,8 @@ python format_panseq_args.py --output     $PANSEQ_ARGS \
 
 perl ${SCRIPT_DIR}/panseq/lib/panseq.pl $PANSEQ_ARGS
 
+### Tidy up Panseq output for MIST friendliness ###
+sed -i 's/_([0-9]*\.*[0-9]*)//g' panseq_results/panGenomeFragments.fasta
 
 ### Create .markers file for MIST ###
 printf "\nSplitting to discrete fastas.\n"
@@ -192,8 +198,8 @@ parallel mono $( locate MIST.exe | sort -n | tail -n 1 ) \
 ### Update allele definitions ### 
 printf "\nUpdating allele definitions.\n"
 python ${SCRIPT_DIR}/update_definitions.py --alleles alleles/ \
-                                           --jsons jsons/ \
-                                            --test wgmlst
+                                           --jsons   jsons/ \
+                                           --test    wgmlst
 
 ### Align genes with clustalo ###
 printf "\nAligning genes.\n"
@@ -202,8 +208,8 @@ parallel clustalo -i {} -o msa/{/} ::: alleles/*.fasta
 ### Divide Reference-based calls into core, genome, accessory schemes ###
 printf "\nParsing JSONs.\n"
 python ${SCRIPT_DIR}/json2csv.py --jsons jsons/ \
-                                 --test wgmlst \
-                                 --out  wgmlst_calls.csv
+                                 --test  wgmlst \
+                                 --out   wgmlst_calls.csv
 
 printf "\nDividing markers into core and accessory schemes.\n"
 Rscript ${SCRIPT_DIR}/divide_schemes.R wgmlst_calls.csv wgmlst.markers
